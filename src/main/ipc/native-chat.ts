@@ -26,6 +26,8 @@ export type NativeChatReadSessionArgs = {
   /** Authoritative transcript path from the agent hook (providerSession), used to
    *  locate the file when the session id no longer names it (recent Claude Code). */
   transcriptPath?: string
+  /** Local Windows WSL distro owning the OpenCode process. */
+  wslDistro?: string
 }
 
 // Why: render and parse only the recent window so long transcripts do not stall
@@ -51,6 +53,7 @@ async function readSession(
         agent,
         sessionId,
         transcriptPath: args.transcriptPath,
+        openCodeWslDistro: args.wslDistro,
         limit
       },
       controller.signal
@@ -68,6 +71,8 @@ export type NativeChatSubscribeArgs = {
   sessionId: string
   /** Authoritative transcript path from the agent hook (providerSession). */
   transcriptPath?: string
+  /** Local Windows WSL distro owning the OpenCode process. */
+  wslDistro?: string
   limit?: number
 }
 
@@ -186,7 +191,7 @@ async function handleSubscribe(event: IpcMainEvent, args: NativeChatSubscribeArg
   if (sender.isDestroyed()) {
     return
   }
-  const { subscriptionId, agent, sessionId, transcriptPath } = args
+  const { subscriptionId, agent, sessionId, transcriptPath, wslDistro } = args
   const limit = args.limit && args.limit > 0 ? Math.floor(args.limit) : DESKTOP_READ_WINDOW
   // Replace any prior subscription under the same id (session change/resubscribe).
   const pending = beginPendingSubscription(sender.id, subscriptionId)
@@ -196,6 +201,7 @@ async function handleSubscribe(event: IpcMainEvent, args: NativeChatSubscribeArg
     agent,
     sessionId,
     transcriptPath,
+    openCodeWslDistro: wslDistro,
     initialLimit: limit,
     onInitialSnapshot: (messages, hasMore, _beforeOffset, error, lifecycle) => {
       if (sender.isDestroyed()) {

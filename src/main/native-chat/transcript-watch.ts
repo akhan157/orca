@@ -206,7 +206,7 @@ export async function subscribeNativeChatTranscript(
   // updates come from a poll-based reconcile loop instead of fs.watch on a file.
   if (agent === 'opencode') {
     return subscribeOpenCodeNativeChatTranscript({
-      dbPath: resolveOpenCodeNativeChatDbPath(args.openCodeDbPath),
+      dbPath: resolveOpenCodeNativeChatDbPath(args.openCodeDbPath, args.openCodeWslDistro),
       sessionId: args.sessionId,
       initialLimit: args.initialLimit,
       reconciliationIntervalMs: args.reconciliationIntervalMs,

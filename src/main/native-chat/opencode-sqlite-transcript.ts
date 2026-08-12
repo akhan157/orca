@@ -16,6 +16,7 @@ import type {
   NativeChatRole
 } from '../../shared/native-chat-types'
 import { resolveOpenCodeDataDirectory } from '../opencode/opencode-data-directory'
+import { getWslHome, toWindowsWslPath } from '../wsl'
 import { asRecord, extractString, parseJsonObject } from '../ai-vault/session-scanner-values'
 import { toolResultOutput } from './transcript-record-blocks'
 import { readOpenCodeNativeChatTranscript } from './opencode-sqlite-read'
@@ -59,29 +60,70 @@ function isRegularFile(path: string): boolean {
   }
 }
 
-export function resolveOpenCodeNativeChatDbPath(openCodeDbPath?: string): string | null {
+function isGuestAbsolutePath(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//') && !/^\/[A-Za-z]:($|\/)/.test(path)
+}
+
+function toWslHostPath(path: string, distro: string): string {
+  return isGuestAbsolutePath(path) ? toWindowsWslPath(path, distro) : path
+}
+
+function appendWslPath(root: string, ...segments: string[]): string {
+  return `${root.replace(/[\\/]+$/, '')}\\${segments.join('\\')}`
+}
+
+function resolveWslOpenCodeDataDirectory(distro: string): string | null {
+  const home = getWslHome(distro)
+  if (!home) {
+    return null
+  }
+  const configuredDataHome = process.env.XDG_DATA_HOME?.trim()
+  if (configuredDataHome) {
+    return appendWslPath(toWslHostPath(configuredDataHome, distro), 'opencode')
+  }
+  return appendWslPath(home, '.local', 'share', 'opencode')
+}
+
+export function resolveOpenCodeNativeChatDbPath(
+  openCodeDbPath?: string,
+  openCodeWslDistro?: string
+): string | null {
+  const distro = openCodeWslDistro?.trim()
   const explicitPath = openCodeDbPath?.trim()
   if (explicitPath) {
-    return resolveConfiguredDatabasePath(explicitPath)
+    return resolveConfiguredDatabasePath(distro ? toWslHostPath(explicitPath, distro) : explicitPath)
   }
-  const dataDirectory = resolveOpenCodeDataDirectory()
+  const dataDirectory = distro
+    ? resolveWslOpenCodeDataDirectory(distro)
+    : resolveOpenCodeDataDirectory()
+  if (!dataDirectory) {
+    return null
+  }
   const configuredPath = process.env.OPENCODE_DB?.trim()
   if (configuredPath) {
     if (configuredPath === ':memory:') {
       return null
     }
     const resolvedPath = isAbsolute(configuredPath)
-      ? configuredPath
-      : join(dataDirectory, configuredPath)
+      ? (distro ? toWslHostPath(configuredPath, distro) : configuredPath)
+      : distro && isGuestAbsolutePath(configuredPath)
+        ? toWslHostPath(configuredPath, distro)
+        : distro
+          ? appendWslPath(dataDirectory, ...configuredPath.split(/[\\/]/))
+          : join(dataDirectory, configuredPath)
     return resolveConfiguredDatabasePath(resolvedPath)
   }
   for (const databaseName of OPEN_CODE_DEFAULT_DATABASE_NAMES) {
-    const candidate = join(dataDirectory, databaseName)
+    const candidate = distro
+      ? appendWslPath(dataDirectory, databaseName)
+      : join(dataDirectory, databaseName)
     if (isRegularFile(candidate)) {
       return candidate
     }
   }
-  return join(dataDirectory, 'opencode.db')
+  return distro
+    ? appendWslPath(dataDirectory, 'opencode.db')
+    : join(dataDirectory, 'opencode.db')
 }
 
 export function clipOpenCodeText(text: string, cap: number): string {

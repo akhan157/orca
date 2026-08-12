@@ -2,6 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../wsl', () => ({
+  getWslHome: vi.fn(() => '\\\\wsl.localhost\\Ubuntu\\home\\dev'),
+  toWindowsWslPath: (path: string, distro: string) =>
+    `\\\\wsl.localhost\\${distro}${path.split('/').join(String.fromCharCode(92))}`
+}))
 import { resolveOpenCodeNativeChatDbPath } from './opencode-sqlite-transcript'
 
 let dataHome = ''
@@ -74,6 +79,19 @@ describe('resolveOpenCodeNativeChatDbPath', () => {
   })
 
 
+  it('maps the local WSL default database to the owning distro UNC path', () => {
+    vi.stubEnv('XDG_DATA_HOME', '')
+    expect(resolveOpenCodeNativeChatDbPath(undefined, 'Ubuntu')).toBe(
+      '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.local\\share\\opencode\\opencode.db'
+    )
+  })
+
+  it('maps a configured WSL database path to the owning distro UNC path', () => {
+    vi.stubEnv('OPENCODE_DB', '/home/dev/.cache/opencode-custom.db')
+    expect(resolveOpenCodeNativeChatDbPath(undefined, 'Ubuntu')).toBe(
+      '\\\\wsl.localhost\\Ubuntu\\home\\dev\\.cache\\opencode-custom.db'
+    )
+  })
   it('resolves a relative OPENCODE_DB under the host data directory', () => {
     vi.stubEnv('OPENCODE_DB', 'profiles/opencode-custom.db')
     expect(resolveOpenCodeNativeChatDbPath()).toBe(

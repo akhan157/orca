@@ -48,6 +48,8 @@ const NativeChatSession = z.object({
   // locate the file directly when the session id no longer names it (recent
   // Claude Code). Optional for back-compat with older clients.
   transcriptPath: z.string().min(1).optional(),
+  // Local Windows WSL distro owning the OpenCode process; ignored on other hosts.
+  wslDistro: z.string().min(1).optional(),
   beforeOffset: z.number().int().nonnegative().optional()
 })
 
@@ -211,6 +213,7 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
           agent: params.agent,
           sessionId: params.sessionId,
           transcriptPath: params.transcriptPath,
+          openCodeWslDistro: params.wslDistro,
           limit,
           beforeOffset: params.beforeOffset
         },
@@ -272,6 +275,7 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
         agent: params.agent,
         sessionId: params.sessionId,
         transcriptPath: params.transcriptPath,
+        openCodeWslDistro: params.wslDistro,
         initialLimit: limit,
         onInitialSnapshot: (messages, hasMore, beforeOffset, error, lifecycle) => {
           if (closed) {

@@ -115,6 +115,12 @@ export function compareMessages(a: NativeChatMessage, b: NativeChatMessage): num
   if (at !== bt) {
     return at - bt
   }
+  if (a.role === 'reasoning' && a.id === `${b.id}:reasoning`) {
+    return -1
+  }
+  if (b.role === 'reasoning' && b.id === `${a.id}:reasoning`) {
+    return 1
+  }
   if (a.id < b.id) {
     return -1
   }

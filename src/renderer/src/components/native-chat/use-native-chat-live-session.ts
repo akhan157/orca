@@ -29,11 +29,12 @@ export type UseNativeChatLiveSessionArgs = {
   agent: AgentType
   /** The agent's own session id, or null before it reports one — nothing to read/tail, so the view shows live hook state. */
   sessionId: string | null
-  /** Authoritative transcript path from the hook, preferred over reconstructing it from sessionId. Null when not reported. */
+  /** The authoritative transcript path reported by the agent hook, when available. */
   transcriptPath?: string | null
+  /** Local Windows WSL distro owning an OpenCode session; null for host/SSH. */
+  wslDistro?: string | null
   /** Runtime owner (Model B): non-null routes read/subscribe to the remote host; null keeps the local IPC path. */
   runtimeEnvironmentId?: string | null
-  /** False suspends transcript IO while retaining the last committed session. */
   enabled?: boolean
 }
 
@@ -86,8 +87,15 @@ export type ReadState =
 export function useNativeChatLiveSession(
   args: UseNativeChatLiveSessionArgs
 ): NativeChatLiveSession {
-  const { paneKey, agent, sessionId, transcriptPath, runtimeEnvironmentId, enabled = true } = args
-  // Stable per owner id so a re-render without an owner flip keeps the same transport and doesn't re-subscribe.
+  const {
+    paneKey,
+    agent,
+    sessionId,
+    transcriptPath,
+    wslDistro,
+    runtimeEnvironmentId,
+    enabled = true
+  } = args
   const transport = useMemo(
     () => getNativeChatSessionTransport(runtimeEnvironmentId ?? null),
     [runtimeEnvironmentId]
@@ -111,15 +119,15 @@ export function useNativeChatLiveSession(
   useLayoutEffect(() => {
     latestEnabled.current = enabled
   }, [enabled])
-  const latestSessionId = useRef<string | null>(sessionId)
-  latestSessionId.current = sessionId
-  // Tracks the current transport so a load-earlier resolve from a prior host is discarded after an owner flip (session id can stay the same).
   const latestTransport = useRef(transport)
   latestTransport.current = transport
   const transcriptEpochRef = useRef(0)
+  const latestSessionId = useRef<string | null>(sessionId)
+  latestSessionId.current = sessionId
   const sourceKey = JSON.stringify([
     paneKey,
     runtimeEnvironmentId ?? null,
+    wslDistro ?? null,
     agent,
     sessionId,
     transcriptPath ?? null
@@ -174,7 +182,13 @@ export function useNativeChatLiveSession(
         return
       }
       void transport
-        .readSession(agent, activeSessionId, limitRef.current, transcriptPath ?? undefined)
+        .readSession(
+          agent,
+          activeSessionId,
+          limitRef.current,
+          transcriptPath ?? undefined,
+          wslDistro ?? undefined
+        )
         .then((result) => {
           if (cancelled || !latestEnabled.current || frameArrived) {
             return
@@ -199,9 +213,7 @@ export function useNativeChatLiveSession(
           }
         })
     }
-
     loadSession(0)
-
     const subscriptionId = nextSubscriptionId()
     const closeStream = openNativeChatTranscriptStream(
       transport,
@@ -210,6 +222,7 @@ export function useNativeChatLiveSession(
         agent,
         sessionId,
         transcriptPath: transcriptPath ?? undefined,
+        wslDistro: wslDistro ?? undefined,
         limit: limitRef.current
       },
       (frame) => {
@@ -245,7 +258,16 @@ export function useNativeChatLiveSession(
       closeStream()
     }
     // `transport` identity changes on an owner flip, re-running this effect to re-subscribe against the new host.
-  }, [agent, enabled, sessionId, sourceKey, transcriptPath, transport, transcriptLifecycleControl])
+  }, [
+    agent,
+    enabled,
+    sessionId,
+    sourceKey,
+    transcriptPath,
+    wslDistro,
+    transport,
+    transcriptLifecycleControl
+  ])
 
   const loadEarlier = useCallback(() => {
     if (
@@ -262,9 +284,14 @@ export function useNativeChatLiveSession(
     const lifecycleRevision = transcriptLifecycleControl.revision()
     setLoadingEarlier(true)
     void transport
-      .readSession(agent, sessionId, nextLimit, transcriptPath ?? undefined)
+      .readSession(
+        agent,
+        sessionId,
+        nextLimit,
+        transcriptPath ?? undefined,
+        wslDistro ?? undefined
+      )
       .then((result) => {
-        // Ignore a stale resolve from a swapped session or flipped owner — either would paint the wrong host's history.
         if (
           !latestEnabled.current ||
           latestSessionId.current !== sessionId ||
@@ -295,6 +322,7 @@ export function useNativeChatLiveSession(
     agent,
     sessionId,
     transcriptPath,
+    wslDistro,
     transport,
     hasMore,
     loadingEarlier,

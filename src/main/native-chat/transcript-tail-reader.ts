@@ -239,7 +239,7 @@ export async function readNativeChatTranscriptTail(
   // the record-based reader before the file-path resolver runs.
   if (resolveNativeChatTranscriptAgent(args.agent) === 'opencode') {
     return readOpenCodeNativeChatTranscriptTail({
-      dbPath: resolveOpenCodeNativeChatDbPath(args.openCodeDbPath),
+      dbPath: resolveOpenCodeNativeChatDbPath(args.openCodeDbPath, args.openCodeWslDistro),
       sessionId: args.sessionId,
       limit: args.limit,
       beforeOffset: args.beforeOffset,

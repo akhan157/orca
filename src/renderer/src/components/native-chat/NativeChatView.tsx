@@ -46,8 +46,9 @@ import {
   emptyNativeChatContextMenuActions,
   useNativeChatContextMenu
 } from './use-native-chat-context-menu'
-import { resolveNativeChatFileLinkContext } from './native-chat-file-link'
+import { resolveNativeChatFileLinkContext, findTerminalTabWorktreeId } from './native-chat-file-link'
 import { selectNativeChatRuntimeEnvironmentId } from './native-chat-runtime-owner'
+import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { useNativeChatPasteBridge } from './use-native-chat-paste-bridge'
 import { useNativeChatFileLinkClick } from './use-native-chat-file-link-click'
 import type { NativeChatResolvedViewProps, NativeChatViewProps } from './native-chat-view-types'
@@ -123,11 +124,22 @@ function NativeChatResolvedView({
   const runtimeEnvironmentId = useAppStore((s) =>
     selectNativeChatRuntimeEnvironmentId(s, terminalTabId)
   )
+  const wslDistro = useAppStore((s) => {
+    if (runtimeEnvironmentId) {
+      return null
+    }
+    const worktreeId = findTerminalTabWorktreeId(s.tabsByWorktree, terminalTabId)
+    const runtime = getLocalProjectExecutionRuntimeContext(s, worktreeId)
+    return runtime?.status === 'resolved' && runtime.runtime.kind === 'wsl'
+      ? runtime.runtime.distro
+      : null
+  })
   const session = useNativeChatRetainedSession({
     paneKey,
     agent,
     sessionId,
     transcriptPath,
+    wslDistro,
     runtimeEnvironmentId,
     enabled: isVisible
   })

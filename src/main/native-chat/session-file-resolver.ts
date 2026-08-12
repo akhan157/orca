@@ -172,8 +172,9 @@ export type ResolveSessionFileOptions = {
   transcriptPath?: string
   /** Internal host-owned provider metadata; never pass a client-supplied path here. */
   transcriptPathIsHostOwned?: boolean
-  /** Absolute path to the OpenCode SQLite DB (open code overrides the default
-   *  `~/.local/share/opencode/opencode.db` — used by tests/isolated reads). */
+  /** Local Windows WSL distro owning the OpenCode process. */
+  openCodeWslDistro?: string
+  /** Absolute path to the OpenCode SQLite DB (used by tests/isolated reads). */
   openCodeDbPath?: string
 }
 

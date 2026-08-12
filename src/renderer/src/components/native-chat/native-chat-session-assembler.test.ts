@@ -57,6 +57,33 @@ describe('assembleNativeChatSession', () => {
 
     expect(session.messages.map((m) => m.id)).toEqual(['a', 'a1', 'a2', 'b'])
   })
+  it('keeps OpenCode reasoning before its tied visible answer', () => {
+    const session = assembleNativeChatSession({
+      sources: {
+        transcript: [
+          msg({
+            id: 'msg_1',
+            role: 'assistant',
+            timestamp: 100,
+            blocks: [{ type: 'text', text: 'answer' }]
+          }),
+          msg({
+            id: 'msg_1:reasoning',
+            role: 'reasoning',
+            timestamp: 100,
+            blocks: [{ type: 'text', text: 'thinking' }]
+          })
+        ]
+      },
+      sessionId: 's1',
+      agent: 'opencode'
+    })
+
+    expect(session.messages.map((message) => message.id)).toEqual([
+      'msg_1:reasoning',
+      'msg_1'
+    ])
+  })
 
   it('drops a scrape message when a transcript message covers the same turn', () => {
     const scrape = msg({
