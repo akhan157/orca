@@ -1,7 +1,13 @@
-import { stat } from 'node:fs/promises'
 import type { AgentType } from '../../shared/native-chat-types'
 import { resolveSessionFilePath } from './session-file-resolver'
 import { readNativeChatTranscript, type ReadTranscriptResult } from './transcript-reader'
+import { wslGatedStat } from './wsl-transcript-fs-access'
+import {
+  WSL_TRANSCRIPT_FS_CAPACITY_MESSAGE,
+  WSL_TRANSCRIPT_FS_SLOW_MESSAGE,
+  WslTranscriptFsError,
+  wslTranscriptFsRefusal
+} from './wsl-transcript-fs-gate'
 
 // Why: both the desktop IPC handler and the runtime RPC handler read the same
 // host-filesystem transcript, so a single process-global cache keyed by the
@@ -78,7 +84,7 @@ async function fileStat(filePath: string): Promise<{
   ino: number
 } | null> {
   try {
-    const stats = await stat(filePath)
+    const stats = await wslGatedStat(filePath, 'exact')
     return {
       mtimeMs: stats.mtimeMs,
       ctimeMs: stats.ctimeMs,
@@ -86,7 +92,11 @@ async function fileStat(filePath: string): Promise<{
       dev: stats.dev,
       ino: stats.ino
     }
-  } catch {
+  } catch (err) {
+    // Gate refusals must remain retryable; ordinary missing files are misses.
+    if (err instanceof WslTranscriptFsError) {
+      throw err
+    }
     return null
   }
 }
@@ -102,7 +112,14 @@ export async function readNativeChatTranscriptCached(
   /** Hook-reported authoritative transcript path, preferred over the id glob. */
   transcriptPath?: string
 ): Promise<ReadTranscriptResult> {
-  const filePath = await resolveSessionFilePath(agent, sessionId, { transcriptPath })
+  let filePath: string | null
+  try {
+    filePath = await resolveSessionFilePath(agent, sessionId, { transcriptPath })
+  } catch (err) {
+    // Why: gate refusal is transient unavailability — report it without caching
+    // or `notFound` so the next call re-resolves.
+    return { error: wslTranscriptFsRefusal(err).message }
+  }
   if (!filePath) {
     // Not cached (see below): a not-yet-flushed transcript should be re-checked
     // on the next call, not pinned as a settled miss (#8401).
@@ -110,8 +127,19 @@ export async function readNativeChatTranscriptCached(
   }
 
   const key = cacheKey(agent, filePath)
-  const metadata = await fileStat(filePath)
   const cached = cache.get(key)
+  let metadata: Awaited<ReturnType<typeof fileStat>>
+  try {
+    metadata = await fileStat(filePath)
+  } catch (err) {
+    // Why: a stalled distro is transient unavailability; a complete cached
+    // transcript is safer than replacing it with a retry banner.
+    if (cached) {
+      setCached(key, cached)
+      return cached.result
+    }
+    return { error: wslTranscriptFsRefusal(err).message }
+  }
   if (
     cached &&
     metadata &&
@@ -132,10 +160,23 @@ export async function readNativeChatTranscriptCached(
   }
 
   const result = await readNativeChatTranscript(agent, sessionId, { filePath })
-  if (metadata) {
+  // Why: a body-read refusal is transient unavailability, but the file's mtime
+  // is unchanged by it — caching it would serve the retryable error to every
+  // later call until the distro woke.
+  if (metadata && !isGateRefusal(result)) {
     setCached(key, { result, ...metadata })
   }
   return result
+}
+
+// The reader flattens a refusal into its message, so that is the only handle
+// this layer has on one.
+function isGateRefusal(result: ReadTranscriptResult): boolean {
+  return (
+    'error' in result &&
+    (result.error === WSL_TRANSCRIPT_FS_SLOW_MESSAGE ||
+      result.error === WSL_TRANSCRIPT_FS_CAPACITY_MESSAGE)
+  )
 }
 
 /** Test-only: drop the transcript parse cache between runs. */

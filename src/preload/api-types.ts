@@ -2,12 +2,18 @@
 import type {
   CreateHostedReviewArgs,
   CreateHostedReviewResult,
+  CreateStackedHostedReviewArgs,
+  CreateStackedHostedReviewResult,
   HostedReviewCreationEligibility,
   HostedReviewCreationEligibilityArgs,
   HostedReviewForBranchArgs,
   HostedReviewInfo,
   HostedReviewProvider
 } from '../shared/hosted-review'
+import type {
+  BitbucketConnectArgs,
+  BitbucketConnectionStatus
+} from '../shared/bitbucket-credentials'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
 import type { ComputerAwakeStatus } from '../shared/computer-awake-mode'
 import type { BrowserFindSource } from '../shared/browser-find-source'
@@ -1149,6 +1155,9 @@ export type PreloadApi = {
     get: () => {
       platform: NodeJS.Platform
       osRelease: string
+      arch: string
+      /** Login shell or ComSpec when available. */
+      shell: string
       displayServer: 'wayland' | 'x11' | null
     }
   }
@@ -1190,6 +1199,7 @@ export type PreloadApi = {
           | 'externalWorktreeVisibilityPromptDismissedAt'
           | 'externalWorktreeInboxBaselinePaths'
           | 'importedExternalWorktreePaths'
+          | 'agentWorktreeVisibility'
           | 'projectGroupId'
           | 'projectGroupOrder'
           | 'forkSyncMode'
@@ -1326,6 +1336,7 @@ export type PreloadApi = {
           | 'pendingFirstAgentMessageRename'
           | 'firstAgentMessageRenameError'
           | 'lastActivityAt'
+          | 'diffComments'
         >
       >
     }) => Promise<FolderWorkspace | null>
@@ -1461,9 +1472,12 @@ export type PreloadApi = {
       rows: number
       cwd?: string
       cwdFallback?: 'worktree'
+      /** Create a shell for this pane instead of adopting the one it records; see pty.ts. */
+      createFreshShellForUnreachablePane?: boolean
       env?: Record<string, string>
       envToDelete?: string[]
       command?: string
+      commandDelivery?: 'renderer' | 'provider'
       launchConfig?: SleepingAgentLaunchConfig
       resumeProviderSession?: AgentProviderSessionMetadata
       launchToken?: string
@@ -1493,6 +1507,8 @@ export type PreloadApi = {
       snapshotPrefixAnsi?: string
       snapshotFrameAnsi?: string
       snapshotFrameRestoreAnsi?: string
+      snapshotKittyKeyboardFlags?: number
+      snapshotSeq?: number
       isReattach?: boolean
       isAlternateScreen?: boolean
       replay?: string
@@ -1575,6 +1591,9 @@ export type PreloadApi = {
       /** Trailing incomplete escape the emulator ingested; the restorer must
        *  write it after its post-replay resets, last before live chunks. */
       pendingEscapeTailAnsi?: string
+      /** Effective kitty flags the snapshot owner proved at `seq`. Absent means
+       *  unknown; consumers must not turn that into a known `0`. */
+      kittyKeyboardFlags?: number
     } | null>
     getRendererDeliveryDebugSnapshot: () => Promise<{
       pendingPtyCount: number
@@ -1645,6 +1664,7 @@ export type PreloadApi = {
         rows: number
         seq?: number
         lastTitle?: string
+        kittyKeyboardFlags?: number
       } | null
     ) => void
     declarePendingPaneSerializer: (paneKey: string) => Promise<number>
@@ -1982,6 +2002,7 @@ export type PreloadApi = {
       args: HostedReviewCreationEligibilityArgs
     ) => Promise<HostedReviewCreationEligibility>
     create: (args: CreateHostedReviewArgs) => Promise<CreateHostedReviewResult>
+    createStacked: (args: CreateStackedHostedReviewArgs) => Promise<CreateStackedHostedReviewResult>
   }
   // ── GitLab — parallel to gh, MR/issue surface only in v1 ────────
   // Shapes mirror gh.* except where GitLab's API differs (MR states, host-qualified project path, `glab api -i` paging).
@@ -2126,6 +2147,13 @@ export type PreloadApi = {
         type: 'issue' | 'mr'
       }
     ) => Promise<Omit<GitLabWorkItem, 'repoId'> | null>
+  }
+  bitbucket: {
+    connect: (
+      args: BitbucketConnectArgs
+    ) => Promise<{ ok: true; account: string | null } | { ok: false; error: string }>
+    disconnect: () => Promise<void>
+    status: () => Promise<BitbucketConnectionStatus>
   }
   linear: {
     connect: (args: {

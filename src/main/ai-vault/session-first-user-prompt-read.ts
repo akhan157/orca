@@ -1,4 +1,4 @@
-import { realpath, stat } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type {
   AiVaultAgent,
@@ -8,6 +8,7 @@ import type {
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
 import { getWslHomeAsync, listWslDistrosAsync } from '../wsl'
 import { resolveOpenCodeDataDirectory } from '../opencode/opencode-data-directory'
+import { wslGatedStat } from '../native-chat/wsl-transcript-fs-access'
 import { parseAgentSessionFile } from './session-scanner-agent-parser'
 import { withFullFirstUserPromptCapture } from './session-scanner-first-user-prompt-capture'
 import { parseOpenCodeSqliteSession } from './session-scanner-opencode-sqlite'
@@ -185,7 +186,9 @@ async function fileWithMtimeForPath(
   }
 
   try {
-    const info = await stat(filePath)
+    // 'scan' matches the parser this feeds, so the two halves of one re-parse
+    // share a lane instead of the stat jumping the live-transcript queue.
+    const info = await wslGatedStat(filePath, 'scan')
     return {
       path: filePath,
       mtimeMs: info.mtimeMs,

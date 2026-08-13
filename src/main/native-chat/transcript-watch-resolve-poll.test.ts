@@ -14,6 +14,7 @@ vi.mock('./transcript-watch-engine', () => ({
   installTranscriptWatcher: mocks.install
 }))
 import { subscribeNativeChatTranscript } from './transcript-watch'
+import { WslTranscriptFsError } from './wsl-transcript-fs-gate'
 
 const realPlatform = process.platform
 
@@ -132,6 +133,41 @@ describe('native chat transcript resolve polling', () => {
     await vi.advanceTimersByTimeAsync(35)
     expect(mocks.resolve.mock.calls.length).toBeGreaterThan(1)
     subscription.unsubscribe()
+  })
+
+  it('degrades a gate-refused initial resolve to the poll fallback instead of failing', async () => {
+    const engine = { unsubscribe: vi.fn(), watching: true }
+    mocks.resolve
+      .mockRejectedValueOnce(new WslTranscriptFsError('unavailable', 'stuck permits'))
+      .mockResolvedValue('/home/ada/found.jsonl')
+    mocks.install.mockImplementation((filePath: string) => (filePath ? engine : null))
+
+    const subscription = await subscribeNativeChatTranscript({
+      agent: 'claude',
+      sessionId: 'session-id',
+      resolvePollIntervalMs: 10,
+      onAppend: () => {}
+    })
+    expect(subscription.watching).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(20)
+    expect(
+      mocks.install.mock.calls.some(([filePath]) => filePath === '/home/ada/found.jsonl')
+    ).toBe(true)
+    subscription.unsubscribe()
+    expect(engine.unsubscribe).toHaveBeenCalled()
+  })
+
+  it('still fails subscribe on non-gate resolver errors', async () => {
+    mocks.resolve.mockRejectedValueOnce(new Error('resolver crashed'))
+
+    await expect(
+      subscribeNativeChatTranscript({
+        agent: 'claude',
+        sessionId: 'session-id',
+        onAppend: () => {}
+      })
+    ).rejects.toThrow('resolver crashed')
   })
 
   it('cancels queued WSL resolution when the subscription closes', async () => {
